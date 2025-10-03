@@ -38,7 +38,6 @@ Valid actions (emit exactly ONE JSON object per step):
   - "plot_returns": {"type":"OBSERVE","tool":"plot_returns"}
   - "analyze_factor_performance": {"type":"OBSERVE","tool":"analyze_factor_performance","factor_program":{...DSL JSON...}}
 - FACTOR_IMPROVE: {"type":"FACTOR_IMPROVE","new_program":{...DSL JSON...}}
-- REFLECT:     {"type":"REFLECT","note":"<brief reasoning>"}
 - STOP:        {"type":"STOP"}
 """
 
@@ -46,18 +45,15 @@ class PromptBuilder:
     """Builder class for different types of prompts."""
     
     def __init__(self):
-        self.action_schema = ACTION_SCHEMA
-        self.system_prompt = SYSTEM_PROMPT
+        self.system_prompt = SYSTEM_PROMPT + "\n" + ACTION_SCHEMA
     
+    def return_system_prompt(self) -> str:
+        return self.system_prompt
+
     def build_basic_prompt(self, task_card: str, last_obs: Dict[str, Any]) -> str:
         """Build a basic prompt that gives the agent options to OBSERVE or FACTOR_IMPROVE."""
         
-        return f"""{self.system_prompt}
-
-TASK: {task_card}
-
-{self.action_schema}
-
+        return f"""
 CURRENT STATE:
 - Budget remaining: {last_obs.get('budget_left', 0)}
 - Current program: {json.dumps(last_obs.get('current_program', {}), indent=2)}
@@ -74,35 +70,9 @@ Output ONE JSON action with no extra text.
 Action JSON:
 """
 
-    def build_response_prompt(self, response: str, context: Optional[Dict[str, Any]] = None) -> str:
-        """Build a prompt that takes a response and prompts the agent to reflect on it."""
-        context_str = ""
-        if context:
-            context_str = f"\nCONTEXT:\n{json.dumps(context, indent=2)}\n"
-        
-        return f"""{self.system_prompt}
-
-You received the following response from the system:
-
-{response}
-{context_str}
-
-Please analyze this response and provide your next action. Consider:
-- What does this response tell you about the current state?
-- What should be your next step?
-- Do you need to adjust your approach?
-
-{self.action_schema}
-
-Output ONE JSON action with no extra text.
-Action JSON:
-"""
-
     def build_observation_prompt(self, tool: str, result: Any, context: Dict[str, Any]) -> str:
         """Build a prompt after an observation tool has been executed."""
-        return f"""{self.system_prompt}
-
-You just executed the {tool} tool and received the following result:
+        return f"""You just executed the {tool} tool and received the following result:
 
 {json.dumps(result, indent=2)}
 
@@ -113,16 +83,13 @@ CONTEXT:
 
 Based on this observation, what would you like to do next?
 
-{self.action_schema}
-
 Output ONE JSON action with no extra text.
 Action JSON:
 """
 
     def build_improvement_prompt(self, improvement_result: Dict[str, Any], context: Dict[str, Any]) -> str:
         """Build a prompt after a factor improvement has been made."""
-        return f"""{self.system_prompt}
-
+        return f"""
 You just edited the factor and received the following results:
 
 IMPROVEMENT RESULTS:
@@ -149,9 +116,8 @@ Action JSON:
 
     def build_final_evaluation_prompt(self, eval_result: Dict[str, Any], context: Dict[str, Any]) -> str:
         """Build a prompt after the final evaluation has been completed (for reflection only)."""
-        return f"""{self.system_prompt}
-
-The episode has concluded with the following final evaluation results:
+        return f"""
+        The episode has concluded with the following final evaluation results:
 
 FINAL EVALUATION RESULTS:
 - OOS Sharpe: {eval_result.get('oos_sharpe', 0):.3f}
@@ -165,16 +131,4 @@ EPISODE SUMMARY:
 - Final OOS Sharpe: {eval_result.get('oos_sharpe', 0):.3f}
 
 This episode is complete. The evaluation was performed automatically when you chose to STOP.
-You can use REFLECT to add any final thoughts about your strategy.
-
-{self.action_schema}
-
-Output ONE JSON action with no extra text.
-Action JSON:
 """
-
-# Backward compatibility function
-def build_prompt(task_card: str, last_obs: dict) -> str:
-    """Build a basic prompt for backward compatibility."""
-    builder = PromptBuilder()
-    return builder.build_basic_prompt(task_card, last_obs)
