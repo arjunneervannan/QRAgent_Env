@@ -3,13 +3,12 @@
     {
       "id": "x0",
       "op": "rolling_return",
-      "n": 252
+      "n": 126
     },
     {
       "id": "x1",
-      "op": "ema",
-      "n": 21,
-      "src": "x0"
+      "op": "rolling_return",
+      "n": 21
     },
     {
       "id": "x2",
@@ -18,9 +17,38 @@
       "b": "x1"
     },
     {
+      "id": "x3",
+      "op": "rolling_return",
+      "n": 5
+    },
+    {
+      "id": "x4",
+      "op": "ema",
+      "n": 10,
+      "src": "x3"
+    },
+    {
+      "id": "x5",
+      "op": "sub",
+      "a": "x3",
+      "b": "x4"
+    },
+    {
+      "id": "x6",
+      "op": "add",
+      "a": "x2",
+      "b": "x5"
+    },
+    {
+      "id": "x7",
+      "op": "winsor_quantile",
+      "src": "x6",
+      "q": 0.02
+    },
+    {
       "id": "score",
       "op": "zscore_xs",
-      "src": "x2"
+      "src": "x7"
     }
   ],
   "output": "score"

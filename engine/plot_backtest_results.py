@@ -13,7 +13,7 @@ def plot_strategy_results(strategy_weights: pd.DataFrame,
                          title: str = "Strategy Results", 
                          plot_path: str = None) -> str:
     """Generate comprehensive 2x2 grid plots for strategy evaluation."""
-    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+    fig, axes = plt.subplots(2, 2, figsize=(24, 18))
     fig.suptitle(title, fontsize=16)
     
     # Calculate baseline returns
