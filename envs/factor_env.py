@@ -50,6 +50,7 @@ class FactorImproveEnv(gym.Env):
         # Initialize baseline performance as None - will be calculated when needed
         self.baseline_is_performance = None
         self.baseline_oos_performance = None
+        self.previous_factor_program = None  # Track previous factor program for IS improvement calculation
         
         # Set plot path (default to current directory if not provided)
         self.plot_path = plot_path or "plots"
@@ -70,7 +71,6 @@ class FactorImproveEnv(gym.Env):
         
         # Track last improvement from factor_improve actions
         self.last_improvement = 0.0
-        self.previous_information_ratio = 0.0
         
         # Track whether we have performance data from backtests
         self.has_performance_data = False
@@ -93,8 +93,8 @@ class FactorImproveEnv(gym.Env):
         self.episode_rewards = []
         self.incremental_rewards = []
         self.last_improvement = 0.0
-        self.previous_information_ratio = 0.0
         self.has_performance_data = False
+        self.previous_factor_program = None  # Reset previous factor program tracking
         
         return {"budget_left": self.budget}, {}
 
@@ -161,24 +161,30 @@ class FactorImproveEnv(gym.Env):
         # Run backtest for the given program
         strategy_results = self._run_backtest(program, ret_is)
         
-        # Calculate baseline performance if not already done
-        if self.baseline_is_performance is None:
-            self.baseline_is_performance = self._run_backtest(self.baseline_program, ret_is)
+        # Determine previous program for comparison
+        if self.previous_factor_program is None:
+            # First backtest - compare against baseline
+            previous_program = self.baseline_program
+            if self.baseline_is_performance is None:
+                self.baseline_is_performance = self._run_backtest(self.baseline_program, ret_is)
+        else:
+            # Subsequent backtests - compare against previous program
+            previous_program = self.previous_factor_program
         
-        # Calculate improvement metrics
-        improvement = strategy_results["sharpe_net"] - self.baseline_is_performance["sharpe_net"]
-        info_ratio = information_ratio(
-            strategy_results["strategy_net_returns"], 
-            self.baseline_is_performance["strategy_net_returns"], 
-            "daily"
-        )
+        # Run backtest for the previous program on the same data
+        previous_results = self._run_backtest(previous_program, ret_is)
+        
+        # Calculate improvement metrics (current sharpe - previous sharpe)
+        improvement = strategy_results["sharpe_net"] - previous_results["sharpe_net"]
+        
+        # Update previous factor program for next iteration
+        self.previous_factor_program = program
         
         backtest_results = {
             "strategy_sharpe_net": strategy_results["sharpe_net"],
             "strategy_sharpe_gross": strategy_results["sharpe_gross"],
-            "baseline_sharpe": self.baseline_is_performance["sharpe_net"],
+            "baseline_sharpe": self.baseline_is_performance["sharpe_net"] if self.baseline_is_performance else previous_results["sharpe_net"],
             "improvement": improvement,
-            "information_ratio": info_ratio,
         }
         
         # Add plot path if requested
@@ -237,18 +243,12 @@ class FactorImproveEnv(gym.Env):
         
         # Calculate improvement metrics
         improvement = strategy_results["sharpe_net"] - self.baseline_oos_performance["sharpe_net"]
-        info_ratio = information_ratio(
-            strategy_results["strategy_net_returns"], 
-            self.baseline_oos_performance["strategy_net_returns"], 
-            "daily"
-        )
         
         backtest_results = {
             "strategy_sharpe_net": strategy_results["sharpe_net"],
             "strategy_sharpe_gross": strategy_results["sharpe_gross"],
             "baseline_sharpe": self.baseline_oos_performance["sharpe_net"],
             "improvement": improvement,
-            "information_ratio": info_ratio,
         }
         
         return backtest_results
@@ -300,18 +300,18 @@ class FactorImproveEnv(gym.Env):
                 plot_path = f"{self.plot_path}/factor_improve_backtest_{self.steps_used}.png"
                 is_results = self._run_in_sample_backtest(new_program, generate_plot=True, plot_path=plot_path)
                 
-                # Calculate improvement: current info ratio minus previous
-                current_info_ratio = float(is_results["information_ratio"])
+                # Calculate improvement: current sharpe minus previous sharpe
+                current_improvement = float(is_results["improvement"])
 
                 if not self.has_performance_data:
                     # First backtest - improvement is 0
                     self.last_improvement = 0.0
                 else:
                     # Subsequent backtests - improvement is current minus previous
-                    self.last_improvement = current_info_ratio - self.previous_information_ratio
+                    self.last_improvement = current_improvement
                 
-                # Update previous information ratio for next time
-                self.previous_information_ratio = current_info_ratio
+                # Update last improvement for next time
+                self.last_improvement = current_improvement
                 
                 # Calculate reward
                 incremental_reward = calculate_reward(
@@ -332,7 +332,6 @@ class FactorImproveEnv(gym.Env):
                     "strategy_sharpe_net": float(is_results["strategy_sharpe_net"]),
                     "strategy_sharpe_gross": float(is_results["strategy_sharpe_gross"]),
                     "baseline_sharpe": float(is_results["baseline_sharpe"]),
-                    "information_ratio": float(is_results["information_ratio"]),
                     
                     # Additional context
                     "improvement": float(self.last_improvement),
@@ -369,7 +368,6 @@ class FactorImproveEnv(gym.Env):
                 "strategy_sharpe_net": float(oos_results["strategy_sharpe_net"]),
                 "strategy_sharpe_gross": float(oos_results["strategy_sharpe_gross"]),
                 "baseline_sharpe": float(oos_results["baseline_sharpe"]),
-                "information_ratio": float(oos_results["information_ratio"]),
                 
                 # Additional context
                 "final_evaluation": True
