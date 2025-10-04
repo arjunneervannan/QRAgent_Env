@@ -3,12 +3,12 @@
     {
       "id": "x0",
       "op": "rolling_return",
-      "n": 52
+      "n": 252
     },
     {
       "id": "x1",
       "op": "ema",
-      "n": 26,
+      "n": 21,
       "src": "x0"
     },
     {
@@ -18,15 +18,9 @@
       "b": "x1"
     },
     {
-      "id": "x3",
-      "op": "winsor_quantile",
-      "src": "x2",
-      "q": 0.02
-    },
-    {
       "id": "score",
       "op": "zscore_xs",
-      "src": "x3"
+      "src": "x2"
     }
   ],
   "output": "score"

@@ -57,7 +57,7 @@ def demonstrate_full_episode():
     """Demonstrate a complete episode with the new system."""
     print("=== Full Episode Demonstration ===\n")
     
-    env = FactorImproveEnv("data/ff25_daily.csv", test_train_split=0.8, timesteps=100, plot_path="example_plots")
+    env = FactorImproveEnv("data/ff25_daily.csv", test_train_split=0.8, timesteps=100, plot_path="example_plots", baseline_path="baseline.json")
     builder = PromptBuilder()
     
     # Reset environment

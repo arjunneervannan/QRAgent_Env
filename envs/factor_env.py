@@ -17,7 +17,7 @@ class FactorImproveEnv(gym.Env):
     """Enhanced environment for factor improvement with OBSERVE and FACTOR_IMPROVE actions."""
     metadata = {"render_modes": []}
 
-    def __init__(self, data_path, test_train_split, timesteps, reward_config_path=None, plot_path=None):
+    def __init__(self, data_path, test_train_split, timesteps, reward_config_path=None, plot_path=None, baseline_path=None):
         super().__init__()
         
         # Get the project root directory (where this file is located)
@@ -27,6 +27,15 @@ class FactorImproveEnv(gym.Env):
         self.data_path = str(project_root / data_path)
         self.returns = load_ff25_daily(self.data_path)
         self.split = int(test_train_split * len(self.returns))
+        
+        # Load baseline factor program
+        if baseline_path is None:
+            baseline_path = project_root / "baseline.json"
+        else:
+            baseline_path = project_root / baseline_path
+            
+        with open(baseline_path, 'r') as f:
+            self.baseline_program = json.load(f)
 
         self.params = {
             "top_q": 0.2,
@@ -37,6 +46,10 @@ class FactorImproveEnv(gym.Env):
         
         # Load reward configuration
         self.reward_config = load_reward_config(reward_config_path)
+        
+        # Initialize baseline performance as None - will be calculated when needed
+        self.baseline_is_performance = None
+        self.baseline_oos_performance = None
         
         # Set plot path (default to current directory if not provided)
         self.plot_path = plot_path or "plots"
@@ -85,6 +98,40 @@ class FactorImproveEnv(gym.Env):
         
         return {"budget_left": self.budget}, {}
 
+    def _calculate_baseline_performance(self, returns):
+        """Calculate baseline factor performance for given returns."""
+        # Calculate scores for the full dataset first
+        scores = evaluate_program(self.baseline_program, self.returns)
+        
+        # Align scores with the specific return period
+        sc = scores.reindex_like(returns).dropna()
+        ret = returns.reindex_like(sc).dropna()
+        
+        # Ensure we have data
+        if sc.empty or ret.empty:
+            return {
+                "sharpe_net": 0.0,
+                "sharpe_gross": 0.0,
+                "strategy_net_returns": pd.Series(dtype=float),
+                "strategy_gross_returns": pd.Series(dtype=float),
+                "weights": pd.DataFrame(dtype=float)
+            }
+        
+        # Run factor-based backtest
+        factor_results = cross_sectional_ls(
+            returns=ret,
+            scores=sc,
+            **self.params
+        )
+        
+        return {
+            "sharpe_net": sharpe(factor_results["strategy_net_returns"], "daily"),
+            "sharpe_gross": sharpe(factor_results["strategy_gross_returns"], "daily"),
+            "strategy_net_returns": factor_results["strategy_net_returns"],
+            "strategy_gross_returns": factor_results["strategy_gross_returns"],
+            "weights": factor_results["weights"]
+        }
+
     def _describe_data(self, **kwargs):
         """Execute describe_data tool."""
         return describe_data(self.returns)
@@ -129,26 +176,25 @@ class FactorImproveEnv(gym.Env):
             **self.params
         )
         
-        # Calculate equal weight baseline
-        baseline_results = equal_weight_baseline(ret_is, rebalance=self.params.get("rebalance", "ME"))
+        # Calculate baseline factor performance if not already done
+        if self.baseline_is_performance is None:
+            self.baseline_is_performance = self._calculate_baseline_performance(ret_is)
         
-        # Extract weights to separate variables
-        strategy_weights = factor_results["weights"]
-        baseline_weights = baseline_results["weights"]
+        baseline_net = self.baseline_is_performance["strategy_net_returns"]
+        baseline_gross = self.baseline_is_performance["strategy_gross_returns"]
         
         # Extract strategy returns
         strategy_net = factor_results["strategy_net_returns"]
         strategy_gross = factor_results["strategy_gross_returns"]
-        equal_weight_returns = baseline_results["strategy_returns"]
         
         # Calculate metrics
-        info_ratio = information_ratio(strategy_net, equal_weight_returns, "daily")
+        info_ratio = information_ratio(strategy_net, baseline_net, "daily")
         
         # Create clean backtest results with only essential metrics
         backtest_results = {
             "strategy_sharpe_net": sharpe(strategy_net, "daily"),
             "strategy_sharpe_gross": sharpe(strategy_gross, "daily"),
-            "equal_weight_sharpe": sharpe(equal_weight_returns, "daily"),
+            "baseline_sharpe": self.baseline_is_performance["sharpe_net"],
             "information_ratio": info_ratio,
         }
         
@@ -208,26 +254,25 @@ class FactorImproveEnv(gym.Env):
             **self.params
         )
         
-        # Calculate equal weight baseline
-        baseline_results = equal_weight_baseline(ret_oos, rebalance=self.params.get("rebalance", "ME"))
+        # Calculate baseline factor performance if not already done
+        if self.baseline_oos_performance is None:
+            self.baseline_oos_performance = self._calculate_baseline_performance(ret_oos)
         
-        # Extract weights to separate variables
-        strategy_weights = factor_results["weights"]
-        baseline_weights = baseline_results["weights"]
+        baseline_net = self.baseline_oos_performance["strategy_net_returns"]
+        baseline_gross = self.baseline_oos_performance["strategy_gross_returns"]
         
         # Extract strategy returns
         strategy_net = factor_results["strategy_net_returns"]
         strategy_gross = factor_results["strategy_gross_returns"]
-        equal_weight_returns = baseline_results["strategy_returns"]
         
         # Calculate metrics
-        info_ratio = information_ratio(strategy_net, equal_weight_returns, "daily")
+        info_ratio = information_ratio(strategy_net, baseline_net, "daily")
         
         # Create clean backtest results with only essential metrics
         backtest_results = {
             "strategy_sharpe_net": sharpe(strategy_net, "daily"),
             "strategy_sharpe_gross": sharpe(strategy_gross, "daily"),
-            "equal_weight_sharpe": sharpe(equal_weight_returns, "daily"),
+            "baseline_sharpe": self.baseline_oos_performance["sharpe_net"],
             "information_ratio": info_ratio,
         }
         
@@ -298,7 +343,7 @@ class FactorImproveEnv(gym.Env):
                     "FACTOR_IMPROVE",
                     self.reward_config,
                     current_sharpe=is_results["strategy_sharpe_net"],
-                    equal_weight_sharpe=is_results["equal_weight_sharpe"]
+                    equal_weight_sharpe=is_results["baseline_sharpe"]
                 )
                 
                 self.incremental_rewards.append(incremental_reward)
@@ -311,7 +356,7 @@ class FactorImproveEnv(gym.Env):
                     # Core performance metrics
                     "strategy_sharpe_net": float(is_results["strategy_sharpe_net"]),
                     "strategy_sharpe_gross": float(is_results["strategy_sharpe_gross"]),
-                    "equal_weight_sharpe": float(is_results["equal_weight_sharpe"]),
+                    "baseline_sharpe": float(is_results["baseline_sharpe"]),
                     "information_ratio": float(is_results["information_ratio"]),
                     
                     # Additional context
@@ -348,7 +393,7 @@ class FactorImproveEnv(gym.Env):
                 # Core performance metrics
                 "strategy_sharpe_net": float(oos_results["strategy_sharpe_net"]),
                 "strategy_sharpe_gross": float(oos_results["strategy_sharpe_gross"]),
-                "equal_weight_sharpe": float(oos_results["equal_weight_sharpe"]),
+                "baseline_sharpe": float(oos_results["baseline_sharpe"]),
                 "information_ratio": float(oos_results["information_ratio"]),
                 
                 # Additional context

@@ -13,7 +13,7 @@ def load_reward_config(config_path: str = None) -> dict:
 def calculate_reward(action_type: str, config: dict, **kwargs) -> float:
     """Calculate reward based on action type, config, and performance data."""
     if action_type == "FACTOR_IMPROVE":
-        improvement = kwargs["current_sharpe"] - kwargs["equal_weight_sharpe"]
+        improvement = kwargs["current_sharpe"] - kwargs["equal_weight_sharpe"]  # equal_weight_sharpe is now baseline_sharpe
         return improvement * config["factor_improve"]["base_reward_multiplier"]
     
     elif action_type == "OBSERVE":
