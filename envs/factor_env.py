@@ -185,6 +185,11 @@ class FactorImproveEnv(gym.Env):
             "strategy_sharpe_gross": strategy_results["sharpe_gross"],
             "baseline_sharpe": self.baseline_is_performance["sharpe_net"] if self.baseline_is_performance else previous_results["sharpe_net"],
             "improvement": improvement,
+            "series_net": strategy_results["strategy_net_returns"],
+            "series_gross": strategy_results["strategy_gross_returns"],
+            "series_baseline": previous_results["strategy_net_returns"],
+            "weights": strategy_results["weights"],
+            "baseline_weights": previous_results["weights"]
         }
         
         # Add plot path if requested
@@ -202,7 +207,8 @@ class FactorImproveEnv(gym.Env):
                 strategy_weights=strategy_weights,
                 strategy_net_returns=backtest_results["series_net"],
                 strategy_gross_returns=backtest_results["series_gross"],
-                equal_weight_weights=baseline_weights,
+                baseline_weights=baseline_weights,
+                baseline_net_returns=backtest_results["series_baseline"],
                 returns=ret_is,
                 title=title,
                 plot_path=plot_path
