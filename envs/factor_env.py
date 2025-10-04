@@ -98,16 +98,12 @@ class FactorImproveEnv(gym.Env):
         
         return {"budget_left": self.budget}, {}
 
-    def _calculate_baseline_performance(self, returns):
-        """Calculate baseline factor performance for given returns."""
-        # Calculate scores for the full dataset first
-        scores = evaluate_program(self.baseline_program, self.returns)
-        
-        # Align scores with the specific return period
+    def _run_backtest(self, program, returns):
+        """Run backtest for any program on given returns."""
+        scores = evaluate_program(program, self.returns)
         sc = scores.reindex_like(returns).dropna()
         ret = returns.reindex_like(sc).dropna()
         
-        # Ensure we have data
         if sc.empty or ret.empty:
             return {
                 "sharpe_net": 0.0,
@@ -117,12 +113,7 @@ class FactorImproveEnv(gym.Env):
                 "weights": pd.DataFrame(dtype=float)
             }
         
-        # Run factor-based backtest
-        factor_results = cross_sectional_ls(
-            returns=ret,
-            scores=sc,
-            **self.params
-        )
+        factor_results = cross_sectional_ls(returns=ret, scores=sc, **self.params)
         
         return {
             "sharpe_net": sharpe(factor_results["strategy_net_returns"], "daily"),
@@ -162,39 +153,31 @@ class FactorImproveEnv(gym.Env):
 
     def _run_in_sample_backtest(self, program, generate_plot=False, plot_path=None):
         """Run in-sample backtest on the given program with random 10-year sampling."""
-        scores = evaluate_program(program, self.returns)
         ret_is = self.returns.iloc[:self.split]
-        sc_is = scores.iloc[:self.split]
         
         # Select a random 10-year period from the in-sample data
-        ret_is, sc_is = self._sample_10_year_period(ret_is, sc_is)
+        ret_is, _ = self._sample_10_year_period(ret_is, None)
         
-        # Run factor-based backtest
-        factor_results = cross_sectional_ls(
-            returns=ret_is,
-            scores=sc_is,
-            **self.params
+        # Run backtest for the given program
+        strategy_results = self._run_backtest(program, ret_is)
+        
+        # Calculate baseline performance if not already done
+        if self.baseline_is_performance is None:
+            self.baseline_is_performance = self._run_backtest(self.baseline_program, ret_is)
+        
+        # Calculate improvement metrics
+        improvement = strategy_results["sharpe_net"] - self.baseline_is_performance["sharpe_net"]
+        info_ratio = information_ratio(
+            strategy_results["strategy_net_returns"], 
+            self.baseline_is_performance["strategy_net_returns"], 
+            "daily"
         )
         
-        # Calculate baseline factor performance if not already done
-        if self.baseline_is_performance is None:
-            self.baseline_is_performance = self._calculate_baseline_performance(ret_is)
-        
-        baseline_net = self.baseline_is_performance["strategy_net_returns"]
-        baseline_gross = self.baseline_is_performance["strategy_gross_returns"]
-        
-        # Extract strategy returns
-        strategy_net = factor_results["strategy_net_returns"]
-        strategy_gross = factor_results["strategy_gross_returns"]
-        
-        # Calculate metrics
-        info_ratio = information_ratio(strategy_net, baseline_net, "daily")
-        
-        # Create clean backtest results with only essential metrics
         backtest_results = {
-            "strategy_sharpe_net": sharpe(strategy_net, "daily"),
-            "strategy_sharpe_gross": sharpe(strategy_gross, "daily"),
+            "strategy_sharpe_net": strategy_results["sharpe_net"],
+            "strategy_sharpe_gross": strategy_results["sharpe_gross"],
             "baseline_sharpe": self.baseline_is_performance["sharpe_net"],
+            "improvement": improvement,
             "information_ratio": info_ratio,
         }
         
@@ -243,36 +226,28 @@ class FactorImproveEnv(gym.Env):
 
     def _run_oos_backtest(self, program):
         """Run out-of-sample backtest on the given program."""
-        scores = evaluate_program(program, self.returns)
         ret_oos = self.returns.iloc[self.split:]
-        sc_oos = scores.iloc[self.split:]
         
-        # Run factor-based backtest
-        factor_results = cross_sectional_ls(
-            returns=ret_oos,
-            scores=sc_oos,
-            **self.params
+        # Run backtest for the given program
+        strategy_results = self._run_backtest(program, ret_oos)
+        
+        # Calculate baseline performance if not already done
+        if self.baseline_oos_performance is None:
+            self.baseline_oos_performance = self._run_backtest(self.baseline_program, ret_oos)
+        
+        # Calculate improvement metrics
+        improvement = strategy_results["sharpe_net"] - self.baseline_oos_performance["sharpe_net"]
+        info_ratio = information_ratio(
+            strategy_results["strategy_net_returns"], 
+            self.baseline_oos_performance["strategy_net_returns"], 
+            "daily"
         )
         
-        # Calculate baseline factor performance if not already done
-        if self.baseline_oos_performance is None:
-            self.baseline_oos_performance = self._calculate_baseline_performance(ret_oos)
-        
-        baseline_net = self.baseline_oos_performance["strategy_net_returns"]
-        baseline_gross = self.baseline_oos_performance["strategy_gross_returns"]
-        
-        # Extract strategy returns
-        strategy_net = factor_results["strategy_net_returns"]
-        strategy_gross = factor_results["strategy_gross_returns"]
-        
-        # Calculate metrics
-        info_ratio = information_ratio(strategy_net, baseline_net, "daily")
-        
-        # Create clean backtest results with only essential metrics
         backtest_results = {
-            "strategy_sharpe_net": sharpe(strategy_net, "daily"),
-            "strategy_sharpe_gross": sharpe(strategy_gross, "daily"),
+            "strategy_sharpe_net": strategy_results["sharpe_net"],
+            "strategy_sharpe_gross": strategy_results["sharpe_gross"],
             "baseline_sharpe": self.baseline_oos_performance["sharpe_net"],
+            "improvement": improvement,
             "information_ratio": info_ratio,
         }
         

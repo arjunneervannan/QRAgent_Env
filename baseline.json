@@ -1,0 +1,15 @@
+{
+  "nodes": [
+    {
+      "id": "x0",
+      "op": "rolling_return",
+      "n": 126
+    },
+    {
+      "id": "score",
+      "op": "zscore_xs",
+      "src": "x0"
+    }
+  ],
+  "output": "score"
+}
