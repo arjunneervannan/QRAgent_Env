@@ -1,89 +1,69 @@
 #!/usr/bin/env python3
 """
-Example usage of the enhanced QRAgent_Bench system.
-Demonstrates the new prompt system and full DAG factor improvement.
+Example usage of the QRAgent_Bench system.
+Demonstrates factor improvement and backtesting capabilities.
 """
 
 import json
 from envs.factor_env import FactorImproveEnv
-from agent.prompt import PromptBuilder
 from engine.data_analysis import describe_data, plot_returns, analyze_factor_performance
 
-def demonstrate_prompt_system():
-    """Demonstrate the different prompt types."""
-    print("=== Prompt System Demonstration ===\n")
+def demonstrate_basic_usage():
+    """Demonstrate basic environment usage."""
+    print("=== Basic Environment Usage ===\n")
     
-    builder = PromptBuilder()
-    
-    # Example observation
-    obs = {
-        "budget_left": 3,
-        "current_program": {
-            "nodes": [
-                {"id": "x0", "op": "rolling_return", "n": 126},
-                {"id": "score", "op": "zscore_xs", "src": "x0"}
-            ],
-            "output": "score"
-        },
-        "last_eval": {"oos_sharpe": 0.0, "turnover": 0.0, "tests_pass": True, "leak": False},
-        "equal_weight_baseline": None,
-        "current_performance": None,
-        "episode_rewards": [],
-        "incremental_rewards": []
-    }
-    
-    # 1. Basic prompt
-    print("1. Basic Prompt:")
-    basic_prompt = builder.build_basic_prompt("Improve OOS Sharpe >= 0.2", obs)
-    print(basic_prompt[:200] + "...\n")
-    
-    # 2. Response prompt
-    print("2. Response Prompt:")
-    response = "Data analysis shows 25 portfolios with daily returns from 1926-2025. Mean return is 0.0008, std is 0.015."
-    response_prompt = builder.build_response_prompt(response, obs)
-    print(response_prompt[:200] + "...\n")
-    
-    # 3. Observation prompt
-    print("3. Observation Prompt:")
-    observation_result = {
-        "shape": [104092, 25],
-        "date_range": {"start": "1926-07-01", "end": "2025-06-30"},
-        "basic_stats": {"mean": 0.0008, "std": 0.015}
-    }
-    obs_prompt = builder.build_observation_prompt("describe_data", observation_result, obs)
-    print(obs_prompt[:200] + "...\n")
-
-def demonstrate_full_episode():
-    """Demonstrate a complete episode with the new system."""
-    print("=== Full Episode Demonstration ===\n")
-    
-    env = FactorImproveEnv("data/ff25_daily.csv", test_train_split=0.8, timesteps=100, plot_path="example_plots", baseline_path="baseline.json")
-    builder = PromptBuilder()
+    # Initialize environment
+    env = FactorImproveEnv(
+        data_path="data/ff25_value_weighted.csv",
+        test_train_split=0.8,
+        timesteps=10,
+        baseline_path="factors/baseline.json",
+        plot_path="example_plots"
+    )
     
     # Reset environment
-    obs, _ = env.reset()
-    print(f"Initial state: Budget={obs['budget_left']}, Program nodes={len(obs['current_program']['nodes'])}")
+    obs, info = env.reset()
+    print(f"Initial state: Budget={obs['budget_left']}")
+    print(f"Current program nodes: {len(obs['current_program']['nodes'])}")
+    
+    return env, obs
+
+def demonstrate_observation_tools():
+    """Demonstrate observation tools."""
+    print("\n=== Observation Tools ===\n")
+    
+    env, obs = demonstrate_basic_usage()
     
     # Step 1: Observe data
-    print("\n--- Step 1: Observing Data ---")
+    print("--- Step 1: Describing Data ---")
     action = {"type": "OBSERVE", "tool": "describe_data"}
-    obs, reward, done, _, info = env.step(action)
-    print(f"Action: {action}")
+    obs, reward, terminated, truncated, info = env.step(action)
+    print(f"Action: {action['type']} - {action['tool']}")
     print(f"Reward: {reward:.3f}, Budget: {obs['budget_left']}")
-    if "observation_result" in obs["last_eval"]:
-        result = obs["last_eval"]["observation_result"]
-        print(f"Data shape: {result['shape']}")
     
-    # Step 2: Improve factor with full DAG
-    print("\n--- Step 2: Improving Factor ---")
+    if 'observation_result' in obs:
+        result = obs['observation_result']
+        print(f"Data shape: {result.get('shape', 'N/A')}")
+        print(f"Date range: {result.get('date_range', 'N/A')}")
+    
+    return env, obs
+
+def demonstrate_factor_improvement():
+    """Demonstrate factor improvement."""
+    print("\n=== Factor Improvement ===\n")
+    
+    env, obs = demonstrate_observation_tools()
+    
+    # Step 2: Improve factor
+    print("--- Step 2: Improving Factor ---")
     new_program = {
         "nodes": [
-            # Original momentum signal
+            # Momentum signal
             {"id": "x0", "op": "rolling_return", "n": 126},
             {"id": "x1", "op": "rolling_return", "n": 21},
             {"id": "x2", "op": "sub", "a": "x0", "b": "x1"},
             
-            # Additional mean reversion signal
+            # Mean reversion signal
             {"id": "x3", "op": "rolling_return", "n": 5},
             {"id": "x4", "op": "ema", "n": 10, "src": "x3"},
             {"id": "x5", "op": "sub", "a": "x3", "b": "x4"},
@@ -99,91 +79,124 @@ def demonstrate_full_episode():
     }
     
     action = {"type": "FACTOR_IMPROVE", "new_program": new_program}
-    obs, reward, done, _, info = env.step(action)
-    print(f"Action: {action}")
+    obs, reward, terminated, truncated, info = env.step(action)
+    print(f"Action: {action['type']}")
     print(f"Reward: {reward:.3f}, Budget: {obs['budget_left']}")
-    if "in_sample_results" in obs["last_eval"]:
-        results = obs["last_eval"]["in_sample_results"]
-        print(f"In-sample Sharpe: {results['sharpe_net']:.3f}")
-        print(f"Improvement: {obs['last_eval']['improvement']:.3f}")
+    
+    if 'investment_performance' in obs:
+        perf = obs['investment_performance']
+        print(f"Strategy Sharpe: {perf.get('strategy_sharpe_net', 0):.3f}")
+        print(f"Baseline Sharpe: {perf.get('baseline_sharpe', 0):.3f}")
+        print(f"Improvement: {perf.get('improvement', 0):.3f}")
+    
+    return env, obs
+
+def demonstrate_evaluation():
+    """Demonstrate final evaluation."""
+    print("\n=== Final Evaluation ===\n")
+    
+    env, obs = demonstrate_factor_improvement()
     
     # Step 3: Stop (triggers automatic evaluation)
-    print("\n--- Step 3: Stopping (triggers automatic evaluation) ---")
+    print("--- Step 3: Stopping (triggers evaluation) ---")
     action = {"type": "STOP"}
-    obs, reward, done, _, info = env.step(action)
-    print(f"Action: {action}")
-    print(f"Reward: {reward:.3f}, Done: {done}")
-    print(f"OOS Sharpe: {obs['last_eval']['oos_sharpe']:.3f}")
-    print(f"Turnover: {obs['last_eval']['turnover']:.3f}")
+    obs, reward, terminated, truncated, info = env.step(action)
+    print(f"Action: {action['type']}")
+    print(f"Reward: {reward:.3f}, Terminated: {terminated}")
     
-    print(f"\nFinal Summary:")
-    print(f"  Episode rewards: {obs['episode_rewards']}")
-    print(f"  Incremental rewards: {obs['incremental_rewards']}")
-    print(f"  Final OOS Sharpe: {obs['last_eval']['oos_sharpe']:.3f}")
+    if 'investment_performance' in obs:
+        perf = obs['investment_performance']
+        print(f"Final OOS Sharpe: {perf.get('strategy_sharpe_net', 0):.3f}")
+        print(f"Turnover: {perf.get('turnover', 0):.3f}")
+        if 'plot_path' in perf:
+            print(f"Plot saved: {perf['plot_path']}")
+    
+    print(f"\nEpisode Summary:")
+    print(f"  Total reward: {sum(obs.get('episode_rewards', [])):.3f}")
+    print(f"  Steps taken: {len(obs.get('episode_rewards', []))}")
 
-def demonstrate_prompt_builder_usage():
-    """Show how to use the PromptBuilder class effectively."""
-    print("=== PromptBuilder Usage Examples ===\n")
+def demonstrate_custom_reward_config():
+    """Demonstrate custom reward configuration."""
+    print("\n=== Custom Reward Configuration ===\n")
     
-    builder = PromptBuilder()
-    
-    # Example context
-    context = {
-        "budget_left": 2,
-        "current_program": {
-            "nodes": [
-                {"id": "x0", "op": "rolling_return", "n": 63},
-                {"id": "score", "op": "zscore_xs", "src": "x0"}
-            ],
-            "output": "score"
+    # Create custom reward config
+    custom_config = {
+        "factor_improve": {
+            "base_reward_multiplier": 3.0,
+            "improvement_formula": "current_sharpe - equal_weight_sharpe"
         },
-        "episode_rewards": [0.1, 0.5],
-        "incremental_rewards": [0.5]
+        "observe": {
+            "success_reward": 0.2,
+            "failure_reward": -5.0
+        },
+        "stop": {
+            "base_multiplier": 1.0,
+            "cost_per_turnover": 0.05,
+            "cost_per_step": 0.02,
+            "pass_guard": 1.0,
+            "fail_guard": -2.0
+        },
+        "validation_error": {
+            "reward": -5.0
+        }
     }
     
-    # 1. After observation
-    print("1. After observation tool:")
-    obs_prompt = builder.build_observation_prompt(
-        "describe_data", 
-        {"shape": [1000, 25], "mean": 0.001}, 
-        context
-    )
-    print(obs_prompt[:150] + "...\n")
+    # Save custom config
+    with open("custom_reward_config.json", "w") as f:
+        json.dump(custom_config, f, indent=2)
     
-    # 2. After factor improvement
-    print("2. After factor improvement:")
-    improvement_result = {
-        "sharpe_net": 0.8,
-        "improvement": 0.3,
-        "incremental_reward": 0.6,
-        "avg_turnover": 1.2,
-        "tests_pass": True
-    }
-    imp_prompt = builder.build_improvement_prompt(improvement_result, context)
-    print(imp_prompt[:150] + "...\n")
+    print("Custom reward configuration created: custom_reward_config.json")
+    print("Key changes:")
+    print("  - Higher factor improvement multiplier (3.0 vs 2.0)")
+    print("  - Higher observation success reward (0.2 vs 0.1)")
+    print("  - Lower validation error penalty (-5.0 vs -10.0)")
+
+def demonstrate_factor_validation():
+    """Demonstrate factor program validation."""
+    print("\n=== Factor Validation ===\n")
     
-    # 3. After evaluation
-    print("3. After evaluation:")
-    eval_result = {
-        "oos_sharpe": 0.75,
-        "turnover": 1.1,
-        "tests_pass": True,
-        "leak": False
+    from factors.validate import validate_program
+    
+    # Valid program
+    valid_program = {
+        "nodes": [
+            {"id": "x0", "op": "rolling_return", "n": 63},
+            {"id": "score", "op": "zscore_xs", "src": "x0"}
+        ],
+        "output": "score"
     }
-    eval_prompt = builder.build_evaluation_prompt(eval_result, context)
-    print(eval_prompt[:150] + "...\n")
+    
+    is_valid, errors = validate_program(valid_program)
+    print(f"Valid program: {is_valid}")
+    if not is_valid:
+        for error in errors:
+            print(f"  Error: {error}")
+    
+    # Invalid program (missing required parameter)
+    invalid_program = {
+        "nodes": [
+            {"id": "x0", "op": "rolling_return"},  # Missing 'n' parameter
+            {"id": "score", "op": "zscore_xs", "src": "x0"}
+        ],
+        "output": "score"
+    }
+    
+    is_valid, errors = validate_program(invalid_program)
+    print(f"Invalid program: {is_valid}")
+    if not is_valid:
+        for error in errors:
+            print(f"  Error: {error}")
 
 if __name__ == "__main__":
-    print("QRAgent_Bench - Enhanced Factor Improvement System")
+    print("QRAgent_Bench - Factor Strategy Development Environment")
     print("=" * 60)
     
-    demonstrate_prompt_system()
-    print("\n" + "=" * 60)
-    
-    demonstrate_prompt_builder_usage()
-    print("\n" + "=" * 60)
-    
-    demonstrate_full_episode()
+    demonstrate_basic_usage()
+    demonstrate_observation_tools()
+    demonstrate_factor_improvement()
+    demonstrate_evaluation()
+    demonstrate_custom_reward_config()
+    demonstrate_factor_validation()
     
     print("\n" + "=" * 60)
     print("Demonstration complete!")
