@@ -218,22 +218,28 @@ class FactorImproveEnv(gym.Env):
         return backtest_results
     
     def _sample_10_year_period(self, returns):
-        """Sample a random 10-year period from the data."""
-        # Calculate 10 years in trading days (approximately 252 days per year)
+        """Sample a random period from the data, aiming for 10 years but ensuring minimum 5 years."""
+        # Calculate periods in trading days (approximately 252 days per year)
         ten_years_days = 252 * 10
+        five_years_days = 252 * 5
         
-        # If we don't have enough data, return what we have
-        if len(returns) <= ten_years_days:
+        # If we have less than 5 years of data, return what we have
+        if len(returns) < five_years_days:
             return returns
         
-        # Calculate the maximum start index to ensure we can get 10 years
-        max_start_idx = len(returns) - ten_years_days
+        # If we have less than 10 years but at least 5 years, sample 5 years
+        if len(returns) < ten_years_days:
+            # Calculate the maximum start index to ensure we can get 5 years
+            max_start_idx = len(returns) - five_years_days
+            start_idx = np.random.randint(0, max_start_idx + 1)
+            end_idx = start_idx + five_years_days
+            return returns.iloc[start_idx:end_idx]
         
-        # Select a random start index
+        # If we have 10+ years, sample 10 years
+        max_start_idx = len(returns) - ten_years_days
         start_idx = np.random.randint(0, max_start_idx + 1)
         end_idx = start_idx + ten_years_days
         
-        # Return the sampled data
         return returns.iloc[start_idx:end_idx]
 
     def _run_oos_backtest(self, program):
