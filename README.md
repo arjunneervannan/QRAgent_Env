@@ -69,7 +69,6 @@ Download Fama-French 25 Portfolios data and save as `data/ff25_daily.csv`.
 
 - **OBSERVE**: Analyze data using built-in tools
 - **FACTOR_IMPROVE**: Propose new factor strategies
-- **REFLECT**: Internal reasoning step
 - **STOP**: End episode and trigger final evaluation
 
 ## Reward Configuration

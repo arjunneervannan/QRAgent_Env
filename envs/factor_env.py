@@ -156,7 +156,7 @@ class FactorImproveEnv(gym.Env):
         ret_is = self.returns.iloc[:self.split]
         
         # Select a random 10-year period from the in-sample data
-        ret_is, _ = self._sample_10_year_period(ret_is, None)
+        ret_is = self._sample_10_year_period(ret_is)
         
         # Run backtest for the given program
         strategy_results = self._run_backtest(program, ret_is)
@@ -204,10 +204,10 @@ class FactorImproveEnv(gym.Env):
                 plot_path = f"strategy_results_{start_date}_{end_date}.png"
             
             plot_path = plot_strategy_results(
-                strategy_weights=strategy_weights,
+                strategy_weights=backtest_results["weights"],
                 strategy_net_returns=backtest_results["series_net"],
                 strategy_gross_returns=backtest_results["series_gross"],
-                baseline_weights=baseline_weights,
+                baseline_weights=backtest_results["baseline_weights"],
                 baseline_net_returns=backtest_results["series_baseline"],
                 returns=ret_is,
                 title=title,
@@ -217,14 +217,14 @@ class FactorImproveEnv(gym.Env):
         
         return backtest_results
     
-    def _sample_10_year_period(self, returns, scores):
+    def _sample_10_year_period(self, returns):
         """Sample a random 10-year period from the data."""
         # Calculate 10 years in trading days (approximately 252 days per year)
         ten_years_days = 252 * 10
         
         # If we don't have enough data, return what we have
         if len(returns) <= ten_years_days:
-            return returns, scores
+            return returns
         
         # Calculate the maximum start index to ensure we can get 10 years
         max_start_idx = len(returns) - ten_years_days
@@ -234,7 +234,7 @@ class FactorImproveEnv(gym.Env):
         end_idx = start_idx + ten_years_days
         
         # Return the sampled data
-        return returns.iloc[start_idx:end_idx], scores.iloc[start_idx:end_idx]
+        return returns.iloc[start_idx:end_idx]
 
     def _run_oos_backtest(self, program):
         """Run out-of-sample backtest on the given program."""
@@ -351,15 +351,7 @@ class FactorImproveEnv(gym.Env):
                 error_msg = str(e)
                 reward = calculate_reward("VALIDATION_ERROR", self.reward_config)
                 obs["validation_errors"] = [error_msg]
-                
-            except Exception as e:
-                # Backtesting or other runtime error
-                error_msg = f"Backtest error: {str(e)}"
-                reward = calculate_reward("VALIDATION_ERROR", self.reward_config)
-                obs["validation_errors"] = [error_msg]
 
-        elif atype == "REFLECT":
-            reward = calculate_reward("REFLECT", self.reward_config)
 
         elif atype == "STOP":
             # Automatically run OOS evaluation when agent chooses to stop

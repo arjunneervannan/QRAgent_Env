@@ -20,8 +20,6 @@ def calculate_reward(action_type: str, config: dict, **kwargs) -> float:
         return (config["observe"]["success_reward"] if kwargs.get("success", True) 
                 else config["observe"]["failure_reward"])
     
-    elif action_type == "REFLECT":
-        return config["reflect"]["reward"]
     
     elif action_type == "STOP":
         cfg = config["stop"]

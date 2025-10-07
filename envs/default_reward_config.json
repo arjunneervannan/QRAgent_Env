@@ -7,9 +7,6 @@
     "success_reward": 0.1,
     "failure_reward": -10.0
   },
-  "reflect": {
-    "reward": 0.1
-  },
   "stop": {
     "base_multiplier": 0.7,
     "cost_per_turnover": 0.06,
